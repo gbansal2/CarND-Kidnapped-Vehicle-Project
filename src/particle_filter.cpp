@@ -35,6 +35,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 
     for (int i = 0; i < num_particles; ++i) {
 	Particle p;
+        p.id = i;
 	p.x = dist_x(gen);
 	p.y = dist_y(gen);
 	p.theta = dist_theta(gen);	 
@@ -109,15 +110,11 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   http://planning.cs.uiuc.edu/node99.html
         //
         //
-    //Step 1: Transformation & Association
-
     double x_part, y_part, x_obs, y_obs, theta, x_map, y_map;
     for (int i = 0; i < num_particles; ++i) {
         x_part = particles[i].x;
         y_part = particles[i].y;
         theta = particles[i].theta;
-
-        std::vector<LandmarkObs> predicted;
 
         for (int j = 0; j < observations.size(); ++j) {
             //Transformation
@@ -129,22 +126,30 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
 
             //Association
+            int nearest_lm_id;
             double dist = 10000.0; //very large number
             for (int k = 0; k < map_landmarks.landmark_list.size(); ++k) {
                 Map::single_landmark_s map_lm = map_landmarks.landmark_list[k];
                 double dist_new = sqrt(pow((pred.x-map_lm.x_f),2)+pow((pred.y-map_lm.y_f),2));
                 if (dist > dist_new) {
                     dist = dist_new;
-                    pred.x = map_lm.x_f;
-                    pred.y = map_lm.y_f;
+                    nearest_lm_id = map_lm.id_i;
                 }
             }
-            predicted.push_back(pred);  //predicted and associated measurement in map coordinates
+
+            //Update weights
+            double mu_x = map_landmarks.landmark_list[nearest_lm_id].x_f;
+            double mu_y = map_landmarks.landmark_list[nearest_lm_id].y_f;
+
+            double sig_x = std_landmark[0];
+            double sig_y = std_landmark[1];
+            double gauss_norm = (1/(2 * M_PI * sig_x * sig_y));
+            double exponent = (pow((pred.x - mu_x),2))/(2 * pow(sig_x,2)) + 
+                (pow((pred.y - mu_y),2))/(2 * pow(sig_y,2));
+
+            particles[i].weight *= gauss_norm * exp(-exponent);
         }
     }
-
-
-    //Step 2: Weights update
 
 }
 
@@ -152,7 +157,20 @@ void ParticleFilter::resample() {
 	// TODO: Resample particles with replacement with probability proportional to their weight. 
 	// NOTE: You may find std::discrete_distribution helpful here.
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
+        std::default_random_engine gen;
+        std::vector<double> p_wts;
+        for (int i = 0; i < num_particles; ++i) {
+            p_wts.push_back(particles[i].weight);
+        }
+        std::discrete_distribution<> dd(p_wts.begin(),p_wts.end());
 
+        std::vector<Particle> new_particles;
+
+        for (int i = 0; i < num_particles; ++i) {
+            int picked_id = dd(gen);
+            new_particles.push_back(particles[picked_id]);
+        }
+        particles = new_particles;
 }
 
 Particle ParticleFilter::SetAssociations(Particle particle, std::vector<int> associations, std::vector<double> sense_x, std::vector<double> sense_y)
